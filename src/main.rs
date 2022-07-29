@@ -1,4 +1,6 @@
 #![allow(non_snake_case)]
+use std::cmp::Ordering;
+
 use dioxus::{fermi::*, prelude::*};
 
 use chinese_dictionary as cd;
@@ -53,7 +55,7 @@ fn App(cx: Scope) -> Element {
         style { [include_str!("../assets/styles.css")] }
         Settings { }
         p { }
-        h3 { "Enter Chinese text to be processed:" }
+        h3 { "Enter Simplified Chinese text:" }
         TextInput { }
         PrettyChinese { }
         p {
@@ -166,8 +168,13 @@ fn PrettyChinese(cx: Scope) -> Element {
 
 #[inline_props]
 #[allow(unused_variables)]
-fn WordSpan<'a>(cx: Scope<'a>, word: &'static cd::WordEntry, children: Element<'a>) -> Element<'a> {
+fn WordSpan<'a>(
+    cx: Scope<'a>,
+    defs: &'a [&'static cd::WordEntry],
+    children: Element<'a>,
+) -> Element<'a> {
     let cfg = use_read(&cx, CONFIG);
+    let word = defs[0];
     let hsk = if cfg.hsk { word.hsk } else { 99 };
     let wordspacing = if cfg.wordspace { "" } else { "unspaced" };
 
@@ -180,24 +187,34 @@ fn WordSpan<'a>(cx: Scope<'a>, word: &'static cd::WordEntry, children: Element<'
         });
     }
 
-    let defs = word
-        .english
+    let tooltip = defs
         .iter()
         .enumerate()
-        .map(|(idx, d)| format!("{}. {d}\n", idx + 1))
+        .map(|(idx, thisreading)| {
+            let defs = thisreading
+                .english
+                .iter()
+                .enumerate()
+                .map(|(idx, d)| format!("  {}. {d}\n", idx + 1))
+                .collect::<String>();
+            format!(
+                "({}) {} {} [trad. {}]{}:\n{defs}\n",
+                idx + 1,
+                thisreading.simplified,
+                thisreading.traditional,
+                thisreading.pinyin_marks,
+                if idx == 0 && thisreading.hsk > 0 {
+                    format!(" (HSK {})", thisreading.hsk)
+                } else {
+                    String::default()
+                }
+            )
+        })
         .collect::<String>();
-    let tooltip = format!(
-        "** {}{} **\n\n",
-        word.pinyin_marks,
-        if word.hsk > 0 {
-            format!(" (HSK {})", word.hsk)
-        } else {
-            String::default()
-        }
-    );
+
     cx.render(rsx! {
         span {
-            title: "{tooltip}{defs}",
+            title: "{tooltip}",
             class: "word{wordspacing} hsk{hsk}",
             &cx.props.children
         }
@@ -207,15 +224,16 @@ fn WordSpan<'a>(cx: Scope<'a>, word: &'static cd::WordEntry, children: Element<'
 #[inline_props]
 fn Chinese<'a>(cx: Scope, word: &'a Segment) -> Element<'a> {
     let cfg = use_read(&cx, CONFIG);
-    let thisword = match word {
+    let defs = match word {
         Segment::Break => return cx.render(rsx! { br { } }),
         Segment::Plain(plain) => {
             return cx.render(rsx! {
                 span { class: "tone5 plain", "{plain}" }
             })
         }
-        Segment::Chinese(preferred, _) => preferred,
+        Segment::Chinese(ref defs) => defs,
     };
+    let thisword = defs[0];
 
     let cchars = if cfg.simplified {
         thisword.simplified.chars()
@@ -233,7 +251,7 @@ fn Chinese<'a>(cx: Scope, word: &'a Segment) -> Element<'a> {
 
     cx.render(rsx! {
         WordSpan {
-            word: thisword,
+            defs: defs,
             ruby {
                 pwords.into_iter().map(|(c, (pinyin, mut tone))| {
                     if !tone_color { tone = 99 }
@@ -257,7 +275,7 @@ fn Chinese<'a>(cx: Scope, word: &'a Segment) -> Element<'a> {
 
 #[derive(Debug)]
 enum Segment {
-    Chinese(&'static cd::WordEntry, Vec<&'static cd::WordEntry>),
+    Chinese(Vec<&'static cd::WordEntry>),
     Plain(String),
     Break,
 }
@@ -265,7 +283,7 @@ enum Segment {
 impl PartialEq for Segment {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Chinese(_, l0), Self::Chinese(_, r0)) => l0
+            (Self::Chinese(l0), Self::Chinese(r0)) => l0
                 .iter()
                 .zip(r0.iter())
                 .all(|(wel, wer)| wel.word_id == wer.word_id),
@@ -280,7 +298,7 @@ impl PartialEq for Segment {
 impl Segment {
     pub fn as_chinese(&self) -> Option<&[&'static cd::WordEntry]> {
         match self {
-            Segment::Chinese(_, ref v) => Some(v),
+            Segment::Chinese(ref v) => Some(v),
             _ => None,
         }
     }
@@ -291,6 +309,32 @@ impl Segment {
             _ => None,
         }
     }
+}
+
+fn sort_defs(defs: &mut [&cd::WordEntry]) {
+    static SUX: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(?i)^\s*(:?(?:archaic|old)\s+variant\s+)|(?:\(archaic\))\s*$")
+            .expect("Internal error: Could not compile regex")
+    });
+    let sucky = |we: &cd::WordEntry| {
+        we.english.is_empty()
+            || we
+                .pinyin_numbers
+                .chars()
+                .next()
+                .expect("Internal error: No pinyin for definition")
+                .is_ascii_uppercase()
+            || SUX.is_match(&we.english[0])
+    };
+    defs.sort_by(|w1, w2| {
+        if sucky(w1) {
+            Ordering::Greater
+        } else if sucky(w2) {
+            Ordering::Less
+        } else {
+            Ordering::Equal
+        }
+    });
 }
 
 fn make_words(s: &str) -> Vec<Segment> {
@@ -306,27 +350,9 @@ fn make_words(s: &str) -> Vec<Segment> {
                 cd::tokenize(ch.as_str())
                     .into_iter()
                     .map(|chword| {
-                        let qr = cd::query_by_simplified(chword);
-                        // println!("== {:?} [{chword}]-- simp:{}, trad:{}\n\n", cd::classify(chword), cd::is_simplified(chword), cd::is_traditional(chword));
-                        // qr.iter().for_each(|w| println!(">> {w:?}"));
-                        if qr.is_empty() {
-                            Segment::Plain(chword.to_owned())
-                        } else {
-                            let preferred = if !qr.is_empty() && qr[0].tone_marks.len() > 1 {
-                                // For multiple character words, we'll just take the first one.
-                                qr[0]
-                            } else {
-                                // However, if it's a single character there weird stuff like surnames will be first.
-                                // It seems like you can detect these by the pinyin being capitalized, so we'll only take one of those as the last resort.
-                                match qr.iter().find(|w| {
-                                    w.pinyin_numbers.chars().take(1).all(|c| c.is_lowercase())
-                                }) {
-                                    None => qr[0],
-                                    Some(w) => w,
-                                }
-                            };
-                            Segment::Chinese(preferred, qr)
-                        }
+                        let mut qr = cd::query_by_simplified(chword);
+                        sort_defs(&mut qr);
+                        Segment::Chinese(qr)
                     })
                     .collect::<Vec<_>>()
             } else {

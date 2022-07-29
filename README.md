@@ -33,9 +33,9 @@ Otherwise refer to the [Makefile](./Makefile) for build commands.
 
 ## Limitations
 
-The dictionary entries for words aren't in any particular order, which can result in unexpected pinyin output and useless definition tooltips.
+The dictionary entries for words aren't reliably in an order where the most common definition will be the one used for pinyin transcription and tones.
 
-For example, the common word **离** would produce `chi1` (archaic term for a mythical beast) rather than `li2` as expected.
+Currently only supports Simplified Chinese input.
 
 The desktop version doesn't seem to correctly support clicking words to open the MDBG definition.
 
