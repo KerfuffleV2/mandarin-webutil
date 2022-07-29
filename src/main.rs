@@ -351,6 +351,12 @@ fn make_words(s: &str) -> Vec<Segment> {
                     .into_iter()
                     .map(|chword| {
                         let mut qr = cd::query_by_simplified(chword);
+                        if qr.is_empty() && cd::is_traditional(chword) {
+                            qr = cd::query_by_traditional(chword);
+                        }
+                        if qr.is_empty() {
+                            return Segment::Plain(chword.to_owned());
+                        }
                         sort_defs(&mut qr);
                         Segment::Chinese(qr)
                     })
