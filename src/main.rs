@@ -201,8 +201,8 @@ fn WordSpan<'a>(
                 "({}) {} {} [trad. {}]{}:\n{defs}\n",
                 idx + 1,
                 thisreading.simplified,
-                thisreading.traditional,
                 thisreading.pinyin_marks,
+                thisreading.traditional,
                 if idx == 0 && thisreading.hsk > 0 {
                     format!(" (HSK {})", thisreading.hsk)
                 } else {

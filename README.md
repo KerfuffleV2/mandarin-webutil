@@ -35,7 +35,7 @@ Otherwise refer to the [Makefile](./Makefile) for build commands.
 
 The dictionary entries for words aren't reliably in an order where the most common definition will be the one used for pinyin transcription and tones.
 
-Currently only supports Simplified Chinese input.
+Traditional support currently is only a fallback after trying to look up the Simplified word.
 
 The desktop version doesn't seem to correctly support clicking words to open the MDBG definition.
 
