@@ -197,7 +197,11 @@ fn generate_hint(
     match hint {
         Hint::Off => None,
         Hint::Pinyin => Some(phon.pinyin()),
-        Hint::PinyinInit => Some(phon.init.pinyin().to_owned()),
+        Hint::PinyinInit => Some(if phon.init != Initial::Hh {
+            phon.init.pinyin().to_owned()
+        } else {
+            phon.fin.pinyin(phon.init)[0..1].to_string()
+        }),
         Hint::PinyinFin => Some({
             let mut result = phon.fin.pinyin(phon.init);
             if !result.is_empty()
