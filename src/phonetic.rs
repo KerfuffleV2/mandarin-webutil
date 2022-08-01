@@ -181,7 +181,12 @@ impl Final {
     }
 
     pub fn from_pinyin(s: impl AsRef<str>, ini: Initial) -> Option<Final> {
-        let mut c = s.as_ref().chars().take(16).filter(|c| c.is_alphabetic());
+        let mut c = s
+            .as_ref()
+            .chars()
+            .take(16)
+            .filter(|c| c.is_alphabetic())
+            .flat_map(|c| c.to_lowercase());
         let c1 = if ini == Initial::Hh {
             match c.next()? {
                 'y' => 'i',
@@ -435,7 +440,7 @@ impl Initial {
     ];
 
     pub fn from_pinyin(s: impl AsRef<str>) -> Option<Self> {
-        let mut chars = s.as_ref().chars().map(|c| c.to_ascii_lowercase());
+        let mut chars = s.as_ref().chars().flat_map(|c| c.to_lowercase());
         Some(match chars.next()? {
             'b' => Self::B,
             'p' => Self::P,
@@ -679,7 +684,7 @@ mod test {
             let w = Syllable::from_pinyin(line);
 
             assert_ne!(w, None);
-            // println!("{line}\t=>\t{:?}", w.unwrap());
+            println!("{line}\t=>\t{:?}", w.unwrap());
         }
     }
 }
