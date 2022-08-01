@@ -1,11 +1,18 @@
 #![allow(non_snake_case)]
 use std::cmp::Ordering;
 
-use dioxus::{fermi::*, prelude::*};
+use dioxus::{events::FormEvent, fermi::*, prelude::*};
 
 use chinese_dictionary as cd;
 use once_cell::sync::Lazy;
+use ph::Initial;
 use regex::Regex;
+
+mod config;
+mod phonetic;
+
+use config::*;
+use phonetic as ph;
 
 static VERSION: Option<&str> = option_env!("CARGO_PKG_VERSION");
 
@@ -18,35 +25,12 @@ fn main() {
     dioxus::desktop::launch(App);
 }
 
-#[derive(Debug, PartialEq, Clone)]
-struct Config {
-    hints: bool,
-    tone_color: bool,
-    hsk: bool,
-    simplified: bool,
-    wordspace: bool,
-    tooltips: bool,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            hints: true,
-            tone_color: true,
-            simplified: true,
-            hsk: true,
-            wordspace: true,
-            tooltips: true,
-        }
-    }
-}
-
 #[derive(Default, Debug, PartialEq, Clone)]
 struct InputState(String);
 
 static INPUT: Atom<String> = |_| String::default();
 static WORDS: Atom<Vec<Segment>> = |_| Vec::default();
-static CONFIG: Atom<Config> = |_| Config::default();
+// static CONFIG: Atom<Config> = |_| Config::default();
 
 fn App(cx: Scope) -> Element {
     let version = VERSION.unwrap_or("UNKNOWN");
@@ -67,6 +51,12 @@ fn App(cx: Scope) -> Element {
     })
 }
 
+macro_rules! cfg_toggle {
+    ($cfg:ident, $field:ident) => {
+        move |_| ($cfg).with_mut(|_c| _c.$field = !(_c.$field))
+    };
+}
+
 fn Settings(cx: Scope) -> Element {
     let cfg = use_atom_state(&cx, CONFIG);
 
@@ -74,65 +64,41 @@ fn Settings(cx: Scope) -> Element {
         div {
             class: "settings",
             h3 { "Settings:" }
-            input {
-                id: "cfgSimplified",
-                r#type: "checkbox",
-                checked: "{cfg.simplified}",
-                onchange: move |_| cfg.modify(|currcfg| Config { simplified: !cfg.simplified, ..currcfg.clone() }),
+            BooleanOption {
+                label: "Simplified",
+                current: cfg.simplified,
+                onchange: cfg_toggle!(cfg, simplified),
             }
-            label {
-                r#for: "cfgSimplified",
-                "Simplified"
+            MultiOption {
+                label: "Hint",
+                current: cfg.hint as usize,
+                options: Hint::OPTIONS,
+                onchange: |evt: FormEvent| {
+                    cfg.with_mut(move |cfg| {
+                        cfg.hint = evt.data.value.parse::<usize>()
+                            .unwrap_or(0).into()
+                    })
+                }
             }
-            input {
-                id: "cfgHints",
-                r#type: "checkbox",
-                checked: "{cfg.hints}",
-                onchange: move |_| cfg.modify(|currcfg| Config { hints: !cfg.hints, ..currcfg.clone() }),
+            BooleanOption {
+                label: "Tone colors",
+                current: cfg.tonecolor,
+                onchange: cfg_toggle!(cfg, tonecolor),
             }
-            label {
-                r#for: "cfgHints",
-                "Hints"
+            BooleanOption {
+                label: "Hsk",
+                current: cfg.hsk,
+                onchange: cfg_toggle!(cfg, hsk),
             }
-            input {
-                id: "cfgTonecolor",
-                r#type: "checkbox",
-                checked: "{cfg.tone_color}",
-                onchange: move |_| cfg.modify(|currcfg| Config { tone_color: !cfg.tone_color, ..currcfg.clone() }),
+            BooleanOption {
+                label: "Word spacing",
+                current: cfg.wordspace,
+                onchange: cfg_toggle!(cfg, wordspace),
             }
-            label {
-                r#for: "cfgTonecolor",
-                "Tone color"
-            }
-            input {
-                id: "cfgHsk",
-                r#type: "checkbox",
-                checked: "{cfg.hsk}",
-                onchange: move |_| cfg.modify(|currcfg| Config { hsk: !cfg.hsk, ..currcfg.clone() }),
-            }
-            label {
-                r#for: "cfgHsk",
-                "HSK"
-            }
-            input {
-                id: "cfgWordspace",
-                r#type: "checkbox",
-                checked: "{cfg.wordspace}",
-                onchange: move |_| cfg.modify(|currcfg| Config { wordspace: !cfg.wordspace, ..currcfg.clone() }),
-            }
-            label {
-                r#for: "cfgWordspace",
-                "Word spacing"
-            }
-            input {
-                id: "cfgTooltips",
-                r#type: "checkbox",
-                checked: "{cfg.tooltips}",
-                onchange: move |_| cfg.modify(|currcfg| Config { tooltips: !cfg.tooltips, ..currcfg.clone() }),
-            }
-            label {
-                r#for: "cfgTooltips",
-                "Tooltips"
+            BooleanOption {
+                label: "Tooltips",
+                current: cfg.tooltips,
+                onchange: cfg_toggle!(cfg, tooltips),
             }
         }
     })
@@ -221,6 +187,45 @@ fn WordSpan<'a>(
     })
 }
 
+fn generate_hint(
+    hint: Hint,
+    phon: &ph::Syllable,
+    tone: u8,
+    hsk: u8,
+    pin: &'static str,
+) -> Option<String> {
+    match hint {
+        Hint::Off => None,
+        Hint::Pinyin => Some(phon.pinyin()),
+        Hint::PinyinInit => Some(phon.init.pinyin().to_owned()),
+        Hint::PinyinFin => Some({
+            let mut result = phon.fin.pinyin(phon.init);
+            if !result.is_empty()
+                && phon.init == Initial::Hh
+                && (result.starts_with('y') || result.starts_with('w'))
+            {
+                result = &result[1..];
+            }
+            result.to_owned()
+        }),
+        Hint::Zhuyin => Some(phon.zhuyin()),
+        Hint::Ipa => Some(phon.ipa()),
+        Hint::Raw => Some({
+            let inistr = if phon.init == ph::Initial::Hh {
+                String::default()
+            } else {
+                format!("{:?}", phon.init)
+            };
+            let mut result = format!("{inistr}{:?}", phon.fin);
+            result.make_ascii_lowercase();
+            result
+        }),
+        Hint::ToneMark => Some(tone.to_string()),
+        Hint::Hsk => Some(hsk.to_string()),
+        Hint::PinyinTM => Some(pin.to_owned()),
+    }
+}
+
 #[inline_props]
 fn Chinese<'a>(cx: Scope, word: &'a Segment) -> Element<'a> {
     let cfg = use_read(&cx, CONFIG);
@@ -242,20 +247,22 @@ fn Chinese<'a>(cx: Scope, word: &'a Segment) -> Element<'a> {
     };
     let pwords = cchars.zip(
         thisword
-            .pinyin_marks
+            .pinyin_numbers
             .split_whitespace()
+            .zip(thisword.pinyin_marks.split_whitespace())
             .zip(thisword.tone_marks.clone()),
     );
-    let hide_hints = !cfg.hints;
-    let tone_color = cfg.tone_color;
+    let tone_color = cfg.tonecolor;
 
     cx.render(rsx! {
         WordSpan {
             defs: defs,
             ruby {
-                pwords.into_iter().map(|(c, (pinyin, mut tone))| {
+                pwords.into_iter().map(|(c, ((pinyin, pinyintm), mut tone))| {
                     if !tone_color { tone = 99 }
                     let linkchars = if cfg.simplified { &thisword.simplified } else { &thisword.traditional };
+                    let phon = ph::Syllable::from_pinyin(pinyin).unwrap_or(ph::Syllable { init: ph::Initial::Q, fin: ph::Final::A});
+                    let maybehint_top = generate_hint(cfg.hint, &phon, tone, thisword.hsk, pinyintm);
                     rsx! {
                         ruby {
                             a {
@@ -264,7 +271,9 @@ fn Chinese<'a>(cx: Scope, word: &'a Segment) -> Element<'a> {
                                 target: "_blank",
                                 "{c}"
                             }
-                            rt { class: "tone{tone}", hidden: "{hide_hints}", "{pinyin}" }
+                            maybehint_top.map(|hint| rsx! {
+                                rt { class: "tone{tone}", "{hint}" }
+                            })
                         }
                     }
                 })

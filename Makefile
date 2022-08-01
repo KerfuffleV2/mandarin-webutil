@@ -19,6 +19,12 @@ build-desktop:
 dev-desktop:
 	cargo run --no-default-features --features desktop --target $(DESKTOP_TARGET)
 
+test:
+	cargo test --target $(DESKTOP_TARGET)
+
+test-nc:
+	 cargo test --target $(DESKTOP_TARGET) -- --nocapture
+
 clean:
 	rm -rf ./target "$(DEPLOY_DIR)"
 
