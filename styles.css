@@ -11,9 +11,30 @@ textarea {
 
 hr { border-top: 1px #111; }
 
+label {
+  margin-left: .5em;
+  color: #bbb;
+  font-weight: bold;
+  padding: 2px;
+  border: 1px dotted #203540;
+}
+
+select {
+  background-color: #101010;
+  color: #bbb;
+}
+
+select option {
+  background-color: #202020 !important;
+  color: #bbb;
+}
+
 rt {
   font-family: sans-serif;
   font-size: small;
+  ruby-position: under;
+  margin-left: 2px;
+  margin-right: 2px;
 }
 
 ruby {
