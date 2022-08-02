@@ -13,9 +13,11 @@ use regex::Regex;
 
 mod config;
 mod phonetic;
+mod stats;
 
 use config::*;
 use phonetic as ph;
+use stats::*;
 
 static VERSION: Option<&str> = option_env!("CARGO_PKG_VERSION");
 
@@ -33,6 +35,7 @@ struct InputState(String);
 
 static INPUT: Atom<String> = |_| String::default();
 static SEGMENTS: Atom<Vec<Segment>> = |_| Vec::default();
+static STATS: Atom<Stats> = |_| Stats::default();
 
 fn App(cx: Scope) -> Element {
     let version = VERSION.unwrap_or("UNKNOWN");
@@ -109,20 +112,27 @@ fn Settings(cx: Scope) -> Element {
 fn TextInput(cx: Scope) -> Element {
     let input = use_atom_state(&cx, INPUT);
     let words = use_atom_state(&cx, SEGMENTS);
+    let stats = use_atom_state(&cx, STATS);
     let fut = use_future(&cx, (), {
         let input = input.clone();
         let words = words.clone();
+        let stats = stats.clone();
         |_| async move {
             let inputlen = input.len();
-            gloo_timers::future::TimeoutFuture::new(if inputlen < 500 {
+            let timeoutms = if inputlen < 500 {
                 100
             } else if inputlen < 2000 {
                 250
             } else {
                 500
-            })
-            .await;
-            words.set(make_words(input.as_str()));
+            };
+            #[cfg(feature = "web")]
+            gloo_timers::future::TimeoutFuture::new(timeoutms).await;
+            #[cfg(feature = "desktop")]
+            tokio::time::sleep(std::time::Duration::from_millis(timeoutms)).await;
+            let (newwords, newstats) = make_words(input.as_str());
+            words.set(newwords);
+            stats.set(newstats);
         }
     });
     cx.render(rsx! {
@@ -137,11 +147,64 @@ fn TextInput(cx: Scope) -> Element {
     })
 }
 
+fn SimpleStats(cx: Scope) -> Element {
+    let stats = use_read(&cx, STATS);
+    let unique_words = stats.hskwords.iter().fold(0, |acc, m| acc + m.len());
+    let total_words = stats.hskcounts.iter().fold(0, |acc, c| acc + *c);
+    let avghsk = if unique_words == 0 {
+        0.0
+    } else {
+        (stats
+            .hskwords
+            .iter()
+            .enumerate()
+            .map(|(idx, m)| (idx + 1) * m.len())
+            .sum::<usize>() as f32)
+            / (unique_words as f32)
+    };
+    cx.render(rsx! {
+        p {
+            b {
+                "Words tot/uniq: {total_words}/{unique_words}"
+                (total_words > 0).then(|| rsx! { ", avg HSK: {avghsk:.2}" }),
+            }
+
+            small {
+                stats.hskwords.iter().zip(stats.hskcounts.iter()).enumerate()
+                    .filter(|(_, (_, cnt))| **cnt > 0)
+                    .map(|(idx, (m, cnt))| {
+                        let idx = idx + 1;
+                        let unique = m.len();
+                        let pct = ((unique as f32) * 100f32) / (unique_words as f32);
+                        rsx! {
+                            ", "
+                            if idx < 15 {
+                                rsx! {
+                                    "HSK"
+                                    b { "{idx}" }
+                                }
+                            } else {
+                                rsx! { "other" }
+                            }
+                            "("
+                            b { "{cnt}" }
+                            "/"
+                            b { "{unique}" }
+                            "/"
+                            b { "{pct:.0}" }
+                            "%)"
+                        }
+                    })
+                }
+        }
+    })
+}
+
 fn PrettyChinese(cx: Scope) -> Element {
     let words = use_read(&cx, SEGMENTS).as_slice();
 
     cx.render(rsx! {
-        h3 { "Output:" }
+        SimpleStats { }
         div {
             words.iter().map(|word| {
                 rsx! { Chinese { word: word } }
@@ -368,46 +431,54 @@ fn sort_defs(defs: &mut [&cd::WordEntry]) {
     });
 }
 
-fn make_words(s: &str) -> Vec<Segment> {
+fn make_words(s: &str) -> (Vec<Segment>, Stats) {
     static REGEX: Lazy<Regex> = Lazy::new(|| {
         Regex::new(r"(?s)([\p{Han}]+)|([^\p{Han}]+)")
             .expect("Internal error: Could not compile regex")
     });
+    let mut stats = Stats::new();
 
-    REGEX
-        .captures_iter(s)
-        .flat_map(|chunk| {
-            if let Some(ch) = chunk.get(1) {
-                cd::tokenize(ch.as_str())
-                    .into_iter()
-                    .map(|chword| {
-                        let mut qr = cd::query_by_simplified(chword);
-                        if qr.is_empty() && cd::is_traditional(chword) {
-                            qr = cd::query_by_traditional(chword);
-                        }
-                        if qr.is_empty() {
-                            return Segment::Plain(chword.to_owned());
-                        }
-                        sort_defs(&mut qr);
-                        Segment::Chinese(qr)
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                chunk
-                    .get(2)
-                    .map(|rmatch| rmatch.as_str())
-                    .unwrap_or_default()
-                    .split_inclusive('\n')
-                    .flat_map(|pchunk| {
-                        let pchunk = pchunk.to_owned();
-                        if pchunk.ends_with('\n') {
-                            vec![Segment::Plain(pchunk), Segment::Break]
-                        } else {
-                            vec![Segment::Plain(pchunk)]
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            }
-        })
-        .collect::<Vec<_>>()
+    (
+        REGEX
+            .captures_iter(s)
+            .flat_map(|chunk| {
+                if let Some(ch) = chunk.get(1) {
+                    cd::tokenize(ch.as_str())
+                        .into_iter()
+                        .map(|chword| {
+                            let mut qr = cd::query_by_simplified(chword);
+                            if qr.is_empty() && cd::is_traditional(chword) {
+                                qr = cd::query_by_traditional(chword);
+                            }
+                            if qr.is_empty() {
+                                return Segment::Plain(chword.to_owned());
+                            }
+                            sort_defs(&mut qr);
+                            if !qr.is_empty() {
+                                let w = &qr[0];
+                                stats.update(&w.simplified, w.hsk);
+                            }
+                            Segment::Chinese(qr)
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    chunk
+                        .get(2)
+                        .map(|rmatch| rmatch.as_str())
+                        .unwrap_or_default()
+                        .split_inclusive('\n')
+                        .flat_map(|pchunk| {
+                            let pchunk = pchunk.to_owned();
+                            if pchunk.ends_with('\n') {
+                                vec![Segment::Plain(pchunk), Segment::Break]
+                            } else {
+                                vec![Segment::Plain(pchunk)]
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                }
+            })
+            .collect::<Vec<_>>(),
+        stats,
+    )
 }

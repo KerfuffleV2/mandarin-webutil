@@ -1206,6 +1206,7 @@ dependencies = [
  "gloo-timers",
  "once_cell",
  "regex",
+ "tokio",
 ]
 
 [[package]]
