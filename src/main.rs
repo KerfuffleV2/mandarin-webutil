@@ -1,5 +1,5 @@
 #![allow(non_snake_case)]
-use std::cmp::Ordering;
+use std::{borrow::Cow, cmp::Ordering};
 
 use dioxus::{events::FormEvent, fermi::*, prelude::*};
 
@@ -193,16 +193,16 @@ fn generate_hint(
     tone: u8,
     hsk: u8,
     pin: &'static str,
-) -> Option<String> {
+) -> Option<Cow<'static, str>> {
     match hint {
         Hint::Off => None,
-        Hint::Pinyin => Some(phon.pinyin()),
+        Hint::Pinyin => Some(Cow::from(phon.pinyin())),
         Hint::PinyinInit => Some(if phon.init != Initial::Hh {
-            phon.init.pinyin().to_owned()
+            Cow::from(phon.init.pinyin())
         } else {
-            phon.fin.pinyin(phon.init)[0..1].to_string()
+            Cow::from(&phon.fin.pinyin(phon.init)[0..1])
         }),
-        Hint::PinyinFin => Some({
+        Hint::PinyinFin => Some(Cow::from({
             let mut result = phon.fin.pinyin(phon.init);
             if !result.is_empty()
                 && phon.init == Initial::Hh
@@ -210,10 +210,10 @@ fn generate_hint(
             {
                 result = &result[1..];
             }
-            result.to_owned()
-        }),
-        Hint::Zhuyin => Some(phon.zhuyin()),
-        Hint::Ipa => Some(phon.ipa()),
+            result
+        })),
+        Hint::Zhuyin => Some(Cow::from(phon.zhuyin())),
+        Hint::Ipa => Some(Cow::from(phon.ipa())),
         Hint::Raw => Some({
             let inistr = if phon.init == ph::Initial::Hh {
                 String::default()
@@ -222,11 +222,11 @@ fn generate_hint(
             };
             let mut result = format!("{inistr}{:?}", phon.fin);
             result.make_ascii_lowercase();
-            result
+            Cow::from(result)
         }),
-        Hint::ToneMark => Some(tone.to_string()),
-        Hint::Hsk => Some(hsk.to_string()),
-        Hint::PinyinTM => Some(pin.to_owned()),
+        Hint::ToneMark => Some(Cow::from(tone.to_string())),
+        Hint::Hsk => Some(Cow::from(hsk.to_string())),
+        Hint::PinyinTM => Some(Cow::from(pin)),
     }
 }
 
