@@ -1,6 +1,9 @@
 #![allow(non_snake_case)]
 use std::{borrow::Cow, cmp::Ordering};
 
+// use wasm_bindgen::prelude as w;
+// use wasm_bindgen_futures as wf;
+
 use dioxus::{events::FormEvent, fermi::*, prelude::*};
 
 use chinese_dictionary as cd;
@@ -29,8 +32,7 @@ fn main() {
 struct InputState(String);
 
 static INPUT: Atom<String> = |_| String::default();
-static WORDS: Atom<Vec<Segment>> = |_| Vec::default();
-// static CONFIG: Atom<Config> = |_| Config::default();
+static SEGMENTS: Atom<Vec<Segment>> = |_| Vec::default();
 
 fn App(cx: Scope) -> Element {
     let version = VERSION.unwrap_or("UNKNOWN");
@@ -106,13 +108,29 @@ fn Settings(cx: Scope) -> Element {
 
 fn TextInput(cx: Scope) -> Element {
     let input = use_atom_state(&cx, INPUT);
-    let words = use_atom_state(&cx, WORDS);
+    let words = use_atom_state(&cx, SEGMENTS);
+    let fut = use_future(&cx, (), {
+        let input = input.clone();
+        let words = words.clone();
+        |_| async move {
+            let inputlen = input.len();
+            gloo_timers::future::TimeoutFuture::new(if inputlen < 500 {
+                100
+            } else if inputlen < 2000 {
+                250
+            } else {
+                500
+            })
+            .await;
+            words.set(make_words(input.as_str()));
+        }
+    });
     cx.render(rsx! {
         textarea {
             cols: "100", rows: "15",
             oninput: move |evt| {
-                words.set(make_words(evt.value.as_str()));
                 input.set(evt.value.clone());
+                fut.restart();
             },
             "{input}"
         }
@@ -120,7 +138,7 @@ fn TextInput(cx: Scope) -> Element {
 }
 
 fn PrettyChinese(cx: Scope) -> Element {
-    let words = use_read(&cx, WORDS).as_slice();
+    let words = use_read(&cx, SEGMENTS).as_slice();
 
     cx.render(rsx! {
         h3 { "Output:" }

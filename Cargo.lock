@@ -1203,6 +1203,7 @@ version = "0.0.5"
 dependencies = [
  "chinese_dictionary",
  "dioxus",
+ "gloo-timers",
  "once_cell",
  "regex",
 ]
