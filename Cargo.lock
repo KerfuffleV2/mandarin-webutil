@@ -1199,7 +1199,7 @@ dependencies = [
 
 [[package]]
 name = "mandarin-webutil"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "chinese_dictionary",
  "dioxus",
