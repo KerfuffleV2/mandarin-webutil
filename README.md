@@ -27,7 +27,7 @@ Command|Result
 `make clean`|Clean build/distribution directories.
 `make deploy`|Deploys to `gh-pages` branch for GitHub Pages. (The branch must already exist.)
 
-*Note*: Desktop build rules target Linux x86_64.
+*Note*: Desktop build rules target Linux x86_64. Currently not buildable.
 
 Otherwise refer to the [Makefile](./Makefile) for build commands.
 

@@ -1,6 +1,4 @@
-use dioxus::{events::FormEvent, fermi::*, prelude::*};
-
-pub static CONFIG: Atom<Config> = |_| Config::default();
+use dioxus::{events::FormEvent, prelude::*};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Hint {
