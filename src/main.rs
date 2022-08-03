@@ -83,7 +83,10 @@ use clipboard::ClipboardFunctions;
 
 macro_rules! cfg_toggle {
     ($cfg:ident, $field:ident) => {
-        move |_| ($cfg).write().$field = !(($cfg).read().$field)
+        move |_| {
+            let _currval_ = (($cfg).read().$field);
+            ($cfg).write().$field = !_currval_;
+        }
     };
 }
 
