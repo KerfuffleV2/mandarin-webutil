@@ -42,6 +42,23 @@ ruby {
   font-size: 20pt;
 }
 
+button {
+  background-color: #203030;
+  color: #ccc;
+  border: 2px dotted #203540;
+  border-radius: 10px;
+  line-height: 1.5;
+}
+
+button:hover {
+  background-color: #405050;
+}
+
+button:active {
+  background-color: #ccc;
+  color: #202030;
+}
+
 a { color: lightgray; }
 
 a.wordlink {
